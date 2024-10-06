@@ -38,15 +38,17 @@ from petsc4py import PETSc
 
 dtype = PETSc.ScalarType
 
-
 def main(): 
 
     # load fwd solution geometry 
-    msh_vtu = meshio.read("fwd_cube_warped.vtu")
-    msh_vtu.write("mesh.xdmf")  
+    # msh_vtu = meshio.read("fwd_cube_warped.vtu")
+    # msh_vtu.write("mesh.xdmf")  
 
-    with dolfinx.io.XDMFFile(MPI.COMM_WORLD, "mesh.xdmf", "r") as xdmf:
-        msh = xdmf.read_mesh(name="Grid")
+    # with dolfinx.io.XDMFFile(MPI.COMM_WORLD, "mesh.xdmf", "r") as xdmf:
+    #     msh = xdmf.read_mesh(name="Grid") 
+
+    # load fwd solution geometry 
+    msh = mesh.create_box(MPI.COMM_WORLD, [[0.0, 0.0, 0.0], [1, 1, 1]], [1, 1, 1], mesh.CellType.tetrahedron)
 
     # mixed function space, 2nd order for displacement and 1st order for pressure  
     # Following fenics 0.8.0 tutorial on mixed spaces: https://docs.fenicsproject.org/dolfinx/v0.8.0/python/demos/demo_mixed-poisson.html
@@ -72,7 +74,7 @@ def main():
 
     # kinematics with deformation gradient, right Green-Cauchy and Lagrangian strain tensor  
     I = Identity(3)
-    F = variable(inv(grad(u_)) + I) # for the unloading case, we use the deformed configuration as the reference configuration
+    F = variable(inv(grad(u_) + I)) # for the unloading case, we use the deformed configuration as the reference configuration
     C = variable(F.T * F)
     E = variable(0.5 * (C - I)) 
 
@@ -80,16 +82,16 @@ def main():
     I_C = tr(C)
     II_C = (1.0 / 2.0) * (tr(C) ** 2 - tr(C * C))
     III_C = det(C)
-    J = III_C ** (1.0 / 2.0) 
+    Jdet = III_C ** (1.0 / 2.0)  
 
     # stored strain energy density (incompressible Neo-Hooke model)
-    psi = (mu / 2.0) * (I_C - 2) - mu * ln(J) + p_ * ln(J) - (1.0 / (2.0 * lmbda)) * p_ ** 2 
+    psi = (mu / 2.0) * (I_C - 2) - mu * ln(Jdet) + p_ * ln(Jdet) - (1.0 / (2.0 * lmbda)) * p_ ** 2 
 
     # second Piola-Kirchoff conjugate with incremental Green-Lagrange
     S = 2.0*diff(psi, C)
-    sigma = J**(-1.0)*F*S*F.T 
+    sigma = Jdet**(-1.0)*F*S*F.T 
     dx = Measure("dx", msh)
-    G = inner(sigma, sym(grad(u_t)))*dx + inner((ln(J) - p_/lmbda), p_t)*dx - inner(g*rho, -u_t[2])*dx
+    G = inner(sigma, sym(grad(u_t)))*dx + inner((ln(Jdet) - p_/lmbda), p_t)*dx - inner(g*rho, -u_t[2])*dx
     J = derivative(G, u_p_, u) 
 
     # define the ROI (Region Of Interest) corresponding to the bottom of the cube 
